@@ -1,0 +1,71 @@
+train:
+  batch_size_per_gpu: 1
+  saveckp_freq: 1 #epoch
+  centering:  "centering" #originally centering, sinkhorn_knopp does not work well
+  OFFICIAL_EPOCH_LENGTH: 27852 #27852 is the number of images in one epoch
+ibot:
+  separate_head: false
+  head_n_prototypes: 8192 #better convergence with 8192
+teacher:
+  warmup_teacher_temp_epochs: 3 #tried with 1
+dino:
+  koleo_loss_weight: 0. #this loss does not work well with small batch sizes, causing errors
+  head_n_prototypes: 8192 #better convergence with 8192
+evaluation:
+  eval_period_iterations: 27852 #27852 is the number of images in one epoch
+optim:
+  epochs: 10 #tried with 3
+  weight_decay: 0.04
+  weight_decay_end: 0.2
+  base_lr: 2.0e-04 # original: 0.004. learning rate for a batch size of 1024, will be scaled for other batch sizes
+  lr: 0.  # will be set after applying scaling rule
+  warmup_epochs: 1 #tried with 0
+  min_lr: 1.0e-06
+  clip_grad: 3.0
+  freeze_last_layer_epochs: 1
+  scaling_rule: sqrt_wrt_1024
+  patch_embed_lr_mult: 0.2
+  layerwise_decay: 0.9
+  adamw_beta1: 0.9
+  adamw_beta2: 0.999
+#mixed precision with fsdp will not be used during training to avoid errors using fp16
+compute_precision:
+  grad_scaler: true
+  teacher:
+    backbone:
+      sharding_strategy: NO_SHARD
+      mixed_precision:
+        param_dtype: fp32 
+        reduce_dtype: fp16
+        buffer_dtype: fp32
+    dino_head:
+      sharding_strategy: NO_SHARD
+      mixed_precision:
+        param_dtype: fp16
+        reduce_dtype: fp16
+        buffer_dtype: fp32
+    ibot_head:
+      sharding_strategy: NO_SHARD
+      mixed_precision:
+        param_dtype: fp16
+        reduce_dtype: fp16
+        buffer_dtype: fp32
+  student:
+    backbone:
+      sharding_strategy: NO_SHARD
+      mixed_precision:
+        param_dtype: fp32
+        reduce_dtype: fp16
+        buffer_dtype: fp32
+    dino_head:
+      sharding_strategy: NO_SHARD
+      mixed_precision:
+        param_dtype: fp16
+        reduce_dtype: fp32
+        buffer_dtype: fp32
+    ibot_head:
+      sharding_strategy: NO_SHARD
+      mixed_precision:
+        param_dtype: fp16
+        reduce_dtype: fp32
+        buffer_dtype: fp32

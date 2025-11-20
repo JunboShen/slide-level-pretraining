@@ -1,0 +1,372 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the Apache License, Version 2.0
+# found in the LICENSE file in the root directory of this source tree.
+
+import argparse
+import logging
+import math
+import os
+from functools import partial
+
+from fvcore.common.checkpoint import PeriodicCheckpointer
+import torch
+from dinov2.data.slide_dataset import SlideDataset
+from dinov2.data import SamplerType, make_data_loader, make_dataset
+from dinov2.data import collate_data_and_cast, DataAugmentationDINO, MaskingGenerator, collate_tile_embs_and_cast, EmbMaskingGenerator, SquareMaskingGenerator
+import dinov2.distributed as distributed
+from dinov2.fsdp import FSDPCheckpointer
+from dinov2.logging import MetricLogger
+from dinov2.utils.config import setup
+from dinov2.utils.utils import CosineScheduler
+
+from dinov2.train.ssl_meta_arch import SSLMetaArch
+
+import wandb
+
+torch.backends.cuda.matmul.allow_tf32 = True # PyTorch 1.12 sets this to False by default
+logger = logging.getLogger("dinov2")
+
+def bool_flag(s):
+    """
+    Parse boolean arguments from the command line.
+    """
+    FALSY_STRINGS = {"off", "false", "0"}
+    TRUTHY_STRINGS = {"on", "true", "1"}
+    if s.lower() in FALSY_STRINGS:
+        return False
+    elif s.lower() in TRUTHY_STRINGS:
+        return True
+    else:
+        raise argparse.ArgumentTypeError("invalid value for a boolean flag")
+
+
+def get_args_parser(add_help: bool = True):
+    parser = argparse.ArgumentParser("DINOv2 training", add_help=add_help)
+    parser.add_argument("--config-file", default="dinov2/configs/train/slide_encoder.yaml", metavar="FILE", help="path to config file")
+    parser.add_argument(
+        "--no-resume",
+        action="store_true",
+        help="Whether to not attempt to resume from the checkpoint directory. ",
+    )
+    parser.add_argument("--eval-only", action="store_true", help="perform evaluation only")
+    parser.add_argument("--eval", type=str, default="", help="Eval type to perform")
+    parser.add_argument(
+        "opts",
+        help="""
+Modify config options at the end of the command. For Yacs configs, use
+space-separated "PATH.KEY VALUE" pairs.
+For python-based LazyConfig, use "path.key=value".
+        """.strip(),
+        default=None,
+        nargs=argparse.REMAINDER,
+    )
+    parser.add_argument(
+        "--output-dir",
+        "--output_dir",
+        default="./dinov2/test",
+        type=str,
+        help="Output directory to save logs and checkpoints",
+    )
+    #for distributed computing
+    parser.add_argument("--local-rank", default=0, type=int, help="Variable for distributed computing.")
+
+    # Multi-crop parameters
+    parser.add_argument('--local_crops_number', type=int, default=8, help="""Number of small
+        local views to generate. Set this parameter to 0 to disable multi-crop training.
+        When disabling multi-crop we recommend to use "--global_crops_scale 0.14 1." """)
+    parser.add_argument('--global_crops_scale', type=float, default=0.95, help="""Scales of the
+        global view. The scale is the relative size of height/width of the global view compared to the original image.""")
+    parser.add_argument('--local_crops_scale', type=float, default=0.5, help="""Scales of the
+        local views. The scale is the relative size of height/width of the local views compared to the original image.""")
+
+    # Misc
+    parser.add_argument('--data_path', default='/m-ent1/ent1/xuhw/TCGA-embed/GigaPath-giant-1B/h5_files/', type=str,
+        help='Please specify path to the training data.')
+    parser.add_argument('--exclude_data_path', default='dinov2/LUAD-5-gene_TCGA.csv', type=str,
+        help='Please specify path to the excluded training data.')
+  
+    parser.add_argument('--tile_size',      type=int, default=256, help='Tile size in pixels')
+    parser.add_argument('--max_wsi_size',   type=int, default=32768, help='Maximum WSI size in pixels for the longer side (width or height).')
+    parser.add_argument('--max_tiles',      type=int, default=8192, help='Maximum number of tiles to sample from a WSI')
+    parser.add_argument('--shuffle_tiles', action='store_true', default=False, help='Shuffle tiles before sampling')
+
+    parser.add_argument('--input_dim',      type=int, default=1536, help='Dimension of input tile embeddings')
+    parser.add_argument('--latent_dim',     type=int, default=768, help='Hidden dimension of the slide encoder')
+    
+    parser.add_argument('--global_pool',    action='store_true', default=False, help='Use global pooling, will use [CLS] token if False')
+    
+    parser.add_argument('--gc',             type=int, default=32, help='Gradient accumulation')
+  
+    parser.add_argument('--dropout',        type=float, default=0.1, help='Dropout rate')
+    parser.add_argument('--drop_path_rate', type=float, default=0.0, help='Drop path rate')
+   
+
+    return parser
+
+
+def build_optimizer(cfg, params_groups):
+    return torch.optim.AdamW(params_groups, betas=(cfg.optim.adamw_beta1, cfg.optim.adamw_beta2))
+
+
+def build_schedulers(cfg):
+    OFFICIAL_EPOCH_LENGTH = cfg.train.OFFICIAL_EPOCH_LENGTH
+    lr = dict(
+        base_value=cfg.optim["lr"],
+        final_value=cfg.optim["min_lr"],
+        total_iters=cfg.optim["epochs"] * OFFICIAL_EPOCH_LENGTH,
+        warmup_iters=cfg.optim["warmup_epochs"] * OFFICIAL_EPOCH_LENGTH,
+        start_warmup_value=0,
+    )
+    wd = dict(
+        base_value=cfg.optim["weight_decay"],
+        final_value=cfg.optim["weight_decay_end"],
+        total_iters=cfg.optim["epochs"] * OFFICIAL_EPOCH_LENGTH,
+    )
+    momentum = dict(
+        base_value=cfg.teacher["momentum_teacher"],
+        final_value=cfg.teacher["final_momentum_teacher"],
+        total_iters=cfg.optim["epochs"] * OFFICIAL_EPOCH_LENGTH,
+    )
+    teacher_temp = dict(
+        base_value=cfg.teacher["teacher_temp"],
+        final_value=cfg.teacher["teacher_temp"],
+        total_iters=cfg.teacher["warmup_teacher_temp_epochs"] * OFFICIAL_EPOCH_LENGTH,
+        warmup_iters=cfg.teacher["warmup_teacher_temp_epochs"] * OFFICIAL_EPOCH_LENGTH,
+        start_warmup_value=cfg.teacher["warmup_teacher_temp"],
+    )
+
+    lr_schedule = CosineScheduler(**lr)
+    wd_schedule = CosineScheduler(**wd)
+    momentum_schedule = CosineScheduler(**momentum)
+    teacher_temp_schedule = CosineScheduler(**teacher_temp)
+    last_layer_lr_schedule = CosineScheduler(**lr)
+
+    last_layer_lr_schedule.schedule[
+        : cfg.optim["freeze_last_layer_epochs"] * OFFICIAL_EPOCH_LENGTH
+    ] = 0  # mimicking the original schedules
+
+    logger.info("Schedulers ready.")
+
+    return (
+        lr_schedule,
+        wd_schedule,
+        momentum_schedule,
+        teacher_temp_schedule,
+        last_layer_lr_schedule,
+    )
+
+
+def apply_optim_scheduler(optimizer, lr, wd, last_layer_lr):
+    for param_group in optimizer.param_groups:
+        is_last_layer = param_group["is_last_layer"]
+        lr_multiplier = param_group["lr_multiplier"]
+        wd_multiplier = param_group["wd_multiplier"]
+        param_group["weight_decay"] = wd * wd_multiplier
+        param_group["lr"] = (last_layer_lr if is_last_layer else lr) * lr_multiplier
+
+
+def do_test(cfg, model, iteration):
+    new_state_dict = model.teacher.state_dict()
+
+    if distributed.is_main_process():
+        iterstring = str(iteration)
+        eval_dir = os.path.join(cfg.train.output_dir, "eval", iterstring)
+        os.makedirs(eval_dir, exist_ok=True)
+        # save teacher checkpoint
+        teacher_ckp_path = os.path.join(eval_dir, "teacher_checkpoint.pth")
+        torch.save({"teacher": new_state_dict}, teacher_ckp_path)
+
+
+def do_train(cfg, model, resume=False):
+    model.train()
+    inputs_dtype = torch.float32 # TODO: Fix this -- originally torch.half
+    fp16_scaler = model.fp16_scaler  # for mixed precision training
+
+    # setup optimizer
+
+    optimizer = build_optimizer(cfg, model.get_params_groups())
+    (
+        lr_schedule,
+        wd_schedule,
+        momentum_schedule,
+        teacher_temp_schedule,
+        last_layer_lr_schedule,
+    ) = build_schedulers(cfg)
+
+    # checkpointer
+    print("Train Output dir: ", cfg.train.output_dir)
+    checkpointer = FSDPCheckpointer(model, cfg.train.output_dir, optimizer=optimizer, save_to_disk=True)
+
+    start_iter = checkpointer.resume_or_load(cfg.MODEL.WEIGHTS, resume=resume).get("iteration", -1) + 1
+
+    # setup data preprocessing
+    DatasetClass = SlideDataset
+
+    dataset = DatasetClass(root_path=cfg.data_path, shuffle_tiles=cfg.shuffle_tiles, max_tiles=cfg.max_tiles, 
+                           global_crops_scale=cfg.global_crops_scale, 
+                           local_crops_scale=cfg.local_crops_scale, local_crops_number=cfg.local_crops_number, 
+                           exlude_data_path=cfg.exclude_data_path)
+    
+    max_iter = cfg.optim.epochs * len(dataset)
+
+    periodic_checkpointer = PeriodicCheckpointer(
+        checkpointer,
+        period=len(dataset),
+        max_iter=max_iter,
+        max_to_keep=10,
+    )
+
+
+    collate_fn = partial(
+        collate_tile_embs_and_cast,
+        mask_ratio_tuple=cfg.ibot.mask_ratio_min_max,
+        mask_probability=cfg.ibot.mask_sample_probability,
+        mask_generator_cls=SquareMaskingGenerator, #EmbMaskingGenerator, original
+        dtype=inputs_dtype,
+    )
+
+
+    sampler_type = SamplerType.SHARDED_INFINITE
+    data_loader = make_data_loader(
+        dataset=dataset,
+        batch_size=cfg.train.batch_size_per_gpu,
+        num_workers=cfg.train.num_workers,
+        shuffle=True,
+        seed=start_iter,  # TODO: Fix this -- cfg.train.seed
+        sampler_type=sampler_type,
+        sampler_advance=0,  # TODO(qas): fix this -- start_iter * cfg.train.batch_size_per_gpu,
+        drop_last=True,
+        collate_fn=collate_fn,
+    )
+
+    # training loop
+
+    iteration = start_iter
+
+    logger.info("Starting training from iteration {}".format(start_iter))
+    metrics_file = os.path.join(cfg.train.output_dir, "training_metrics.json")
+    metric_logger = MetricLogger(delimiter="  ", output_file=metrics_file)
+    header = "Training"
+    idx = 0
+    for data in metric_logger.log_every(
+        data_loader,
+        10,
+        header,
+        max_iter,
+        start_iter,
+    ):
+        #current_batch_size = data["collated_global_crops"].shape[0] / 2
+        current_batch_size = 1
+        idx += 1
+        if iteration > max_iter:
+            return
+
+        # apply schedules
+
+        lr = lr_schedule[iteration]
+        wd = wd_schedule[iteration]
+        mom = momentum_schedule[iteration]
+        teacher_temp = teacher_temp_schedule[iteration]
+        last_layer_lr = last_layer_lr_schedule[iteration]
+        apply_optim_scheduler(optimizer, lr, wd, last_layer_lr)
+
+        # compute losses
+
+        if (iteration % cfg.gc) == 0:
+            optimizer.zero_grad(set_to_none=True)
+            
+        loss_dict = model.forward_backward(data, teacher_temp=teacher_temp)
+
+        # clip gradients 1.7
+        if (iteration + 1) % cfg.gc == 0:
+
+            if fp16_scaler is not None:
+                if cfg.optim.clip_grad:
+                    fp16_scaler.unscale_(optimizer)
+                    for v in model.student.values():
+                        v.clip_grad_norm_(cfg.optim.clip_grad)
+                fp16_scaler.step(optimizer)
+                fp16_scaler.update()
+            else:
+                if cfg.optim.clip_grad:
+                    for v in model.student.values():
+                        v.clip_grad_norm_(cfg.optim.clip_grad)
+                optimizer.step()
+            optimizer.zero_grad(set_to_none=True) 
+            # perform teacher EMA update
+
+            model.update_teacher(mom)
+
+        # logging
+
+        if distributed.get_global_size() > 1:
+            for v in loss_dict.values():
+                torch.distributed.all_reduce(v)
+        loss_dict_reduced = {k: v.item() / distributed.get_global_size() for k, v in loss_dict.items()}
+
+        if math.isnan(sum(loss_dict_reduced.values())):
+            logger.info("NaN detected")
+            raise AssertionError
+
+        losses_reduced = sum(loss for loss in loss_dict_reduced.values())
+
+        metric_logger.update(lr=lr)
+        metric_logger.update(wd=wd)
+        metric_logger.update(mom=mom)
+        metric_logger.update(last_layer_lr=last_layer_lr)
+        metric_logger.update(current_batch_size=current_batch_size)
+        metric_logger.update(total_loss=losses_reduced, **loss_dict_reduced)
+
+        wandb.log({"lr": lr, "wd": wd, "mom": mom, "last_layer_lr": last_layer_lr, "total_loss": losses_reduced, **loss_dict_reduced})
+        
+        # checkpointing and testing
+
+        if cfg.evaluation.eval_period_iterations > 0 and (iteration + 1) % cfg.evaluation.eval_period_iterations == 0:
+            do_test(cfg, model, f"training_{iteration}")
+            torch.cuda.synchronize()
+        periodic_checkpointer.step(iteration)
+
+        iteration = iteration + 1
+    metric_logger.synchronize_between_processes()
+    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+
+
+def main(args):
+    cfg = setup(args)
+    
+    model = SSLMetaArch(cfg,args).to(torch.device("cuda"))
+    
+    model.prepare_for_distributed_training()
+
+    logger.info("Model:\n{}".format(model))
+    if args.eval_only:
+        iteration = (
+            FSDPCheckpointer(model, save_dir=cfg.train.output_dir)
+            .resume_or_load(cfg.MODEL.WEIGHTS, resume=not args.no_resume)
+            .get("iteration", -1)
+            + 1
+        )
+        return do_test(cfg, model, f"manual_{iteration}")
+    # start a new wandb run to track this training
+
+    wandb.init(
+
+        project="dinov2",
+
+        # track hyperparameters and run metadata
+        config=args,
+    )
+
+    do_train(cfg, model, resume=not args.no_resume)
+
+
+if __name__ == "__main__":
+    # record time
+    import time
+    start_time = time.time()
+    args = get_args_parser(add_help=True).parse_args()
+    #print(args)
+    main(args)
+    print("--- %s seconds ---" % (time.time() - start_time))
+    
