@@ -1,4 +1,4 @@
-# Slide-Level Self-Supervised Pretraining through Knowledge Distillation
+# Slide-Level Self-Supervised Pretraining for Pathology Foundation Models
 
 This repository provides training scripts for **slide-level self-supervised representation learning for histopathology**, using novel methods based on **DINO**/**DINOv2**-style knowledge-distillation.  
 The method operates on **ultra-long and variable-length sequences of tile embeddings** extracted from whole-slide images (WSIs).
