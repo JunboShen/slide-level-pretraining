@@ -1,7 +1,7 @@
 # Slide-Level Self-Supervised Pretraining through Knowledge Distillation
 
 This repository provides training scripts for **slide-level self-supervised representation learning for histopathology**, using novel methods based on **DINO**/**DINOv2**-style knowledge-distillation.  
-The method operates on **variable-length sequences of tile embeddings** extracted from whole-slide images (WSIs).
+The method operates on **ultra-long and variable-length sequences of tile embeddings** extracted from whole-slide images (WSIs).
 
 > **Note:** Tile extraction and ViT-based tile embedding generation are **not included** in this repository.  
 > You must supply your own tile embeddings or WSI tiles.  
@@ -12,20 +12,25 @@ The method operates on **variable-length sequences of tile embeddings** extracte
 ## Overview
 
 ### Input: Tile-embedding sequences
+
 The pretraining pipeline expects **variable-length sequences of tile embeddings**, where:
 
 - Each embedding corresponds to a **256×256 WSI tile**.  
-- Embeddings may be generated using **any Vision Transformer (ViT)** encoder.
-- The number of tiles per slide may range from **hundreds to tens of thousands**.
+- Embeddings may be generated using **any Vision Transformer (ViT)** encoder.  
+- The number of tiles per slide may range from **hundreds to tens of thousands**, with a typical cap at **8,192 tiles per slide** (configurable).  
+- Each tile embedding is associated with **(x, y) coordinates** in the slide.
 
-Large-scale slide-level models must capture both *local* and *global* context.  
-For example, the **Prov-GigaPath** model was trained on:
+Large-scale slide-level models must capture both **local** and **global** context. In this repository, we follow a DINO/DINOv2-style setup:
 
-- **1.3 billion** 256×256 H&E tiles  
-- from **171,189 slides**  
-- across **28 cancer centers**  
+- Random **global crops** and **local crops** are defined over the **spatial coordinates of tile embeddings**, not raw pixels.
+- For each crop, the subset of tile embeddings whose coordinates fall inside the crop region are used as tokens.
+- This allows the model to see different spatial regions and scales of the slide, while working entirely at the embedding level.
 
-This large-scale pretraining enables whole-slide encoders to learn representations that go beyond small, patch-level methods. Outperforming multi-instance learning methods such as ABMIL.
+This large-scale pretraining enables whole-slide encoders to learn representations that go beyond small, patch-level methods. Outperforming widely used multi-instance learning methods such as ABMIL.
+
+## Long and variable context length:  
+
+To support such long context lengths—beyond some current WSI foundation models that subsample only a small fixed grid of tiles (e.g., 16×16)—our method replaces standard ViT-style slide encoders with a **LongNet-style Transformer** using dilated self-attention, enabling efficient training on sequences of thousands of tile tokens.
 
 ---
 
@@ -71,12 +76,11 @@ Data
 Due to licensing restrictions, WSI images and tile embeddings are not included.
 Users must supply their own WSI tiles or tile embeddings produced by a ViT encoder.
 
-As an example, Prov-GigaPath uses:
+As an example, the **Prov-GigaPath** model was trained on:
 
--	1.3 billion H&E tiles
--	extracted from 171k slides
-
-to pretrain its slide-level foundation model.
+- **1.3 billion** 256×256 H&E tiles  
+- from **171,189 slides**  
+- across **28 cancer centers** 
 
 ⸻
 
