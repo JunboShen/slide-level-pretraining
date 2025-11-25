@@ -26,7 +26,7 @@ Large-scale slide-level models must capture both **local** and **global** contex
 - For each crop, the subset of tile embeddings whose coordinates fall inside the crop region are used as tokens.
 - This allows the model to see different spatial regions and scales of the slide, while working entirely at the embedding level.
 
-This large-scale pretraining enables whole-slide encoders to learn representations that go beyond small, patch-level methods. Outperforming widely used multi-instance learning methods such as ABMIL.
+This large-scale pretraining enables whole-slide encoders to learn representations that go beyond small, patch-level methods. Linear classifiers built upon the encoder outperform widely used multi-instance learning methods such as ABMIL.
 
 ## Long and variable context length:  
 
