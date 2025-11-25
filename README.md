@@ -25,7 +25,7 @@ For example, the **Prov-GigaPath** model was trained on:
 - from **171,189 slides**  
 - across **28 cancer centers**  
 
-This large-scale pretraining enables whole-slide encoders to learn representations that go beyond small, patch-level methods.
+This large-scale pretraining enables whole-slide encoders to learn representations that go beyond small, patch-level methods. Outperforming multi-instance learning methods such as ABMIL.
 
 ---
 
