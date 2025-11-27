@@ -1,4 +1,4 @@
-name: gigapath
+name: pathpretrain
 channels:
   - defaults
   - nvidia
