@@ -7,6 +7,19 @@ The method operates on **ultra-long and variable-length sequences of tile embedd
 > You must supply your own tile embeddings or WSI tiles.  
 > This workflow is compatible with pathology foundation-model pipelines such as **GigaPath / Prov-GigaPath**.
 
+## Problem formation
+
+Recent pathology foundation models (e.g., UNI, Virchow, GigaPath) provide strong **patch-level encoders**, but their **slide-level aggregation** is still a major bottleneck. Independent evaluations [2] have shown that whole-slide retrieval and classification with these models often perform poorly (e.g., modest top-k retrieval on TCGA, weak performance on lung WSIs), and our own LUAD 5-gene mutation experiments confirm that **simple slide heads** (global pooling, MAE-style bottlenecks, ABMIL) on top of GigaPath/Prov-GigaPath patches only reach ~0.60 macro AUROC and are highly sensitive to tile subsampling and pooling choices.
+
+In this repository we therefore focus on the **slide-level problem**:
+
+> Given a variable-length sequence of tile embeddings (up to ~8k tiles per slide) from a fixed patch encoder, learn a slide encoder that:
+> - handles ultra-long, irregular tile sequences with spatial coordinates,
+> - is trained in a **self-supervised DINO/DINOv2-style** manner, and  
+> - produces **linearly probe-able slide embeddings** that outperform standard MIL and naive aggregation on downstream tasks (e.g., LUAD 5-gene mutation prediction).
+
+The code assumes you already have a ViT-based pathology FM (e.g., GigaPath / Prov-GigaPath) and replaces only the **weak slide-level aggregation** with a stronger long-context Transformer.
+
 
 ## Experiments (LUAD-specific 5-gene mutation prediction on TCGA, 10-fold cross-validation)
 
@@ -99,7 +112,8 @@ Reference
 
 This repository builds upon concepts introduced in Prov-GigaPath.
 
-Hanwen Xu et al., “A whole-slide foundation model for digital pathology from real-world data.”
+[1] Hanwen Xu et al., “A whole-slide foundation model for digital pathology from real-world data.”
 Nature, 2024.
 https://www.nature.com/articles/s41586-024-07441-w
 
+[2] Saghir Alfasly et al., “Validation of histopathology foundation models through whole slide image retrieval.” *Scientific Reports* 15, 3990 (2025). https://doi.org/10.1038/s41598-025-88545-9  [oai_citation:1‡Nature](https://www.nature.com/articles/s41598-025-88545-9)
