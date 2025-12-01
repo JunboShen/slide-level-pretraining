@@ -98,7 +98,7 @@ As an example, the **Prov-GigaPath** model was trained on:
 
 ⸻
 
-Reference
+References
 
 This repository builds upon concepts introduced in Prov-GigaPath.
 
