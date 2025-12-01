@@ -7,6 +7,17 @@ The method operates on **ultra-long and variable-length sequences of tile embedd
 > You must supply your own tile embeddings or WSI tiles.  
 > This workflow is compatible with pathology foundation-model pipelines such as **GigaPath / Prov-GigaPath**.
 
+
+## Experiments (LUAD-specific 5-gene mutation prediction on TCGA, 10-fold cross-validation)
+
+Comparisons:
+- Prov-gigapath patch encoder + DINOv1-style slide encoder (pretrained on TCGA) (Linear probe)
+- Prov-gigapath patch encoder + DINOv2-style slide encoder (pretrained on TCGA) (Linear probe)
+- Prov-gigapath full model (pretrained on Providence (much larger than TCGA))(Linear probe)
+- Prov-gigapath patch encoder + ABMIL
+  
+[Results AUROC/AUPRC](https://docs.google.com/document/d/15Tebd117aaCtSMpdUaY5-_kxblzjrYz6xkJz7hgRaOM/edit?usp=sharing)
+
 ---
 
 ## Overview
