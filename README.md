@@ -1,15 +1,15 @@
 # Slide-Level Self-Supervised Pretraining for Pathology Foundation Models
 
-This repository provides training scripts for **slide-level self-supervised representation learning for histopathology**, using novel methods based on **DINO**/**DINOv2**-style knowledge-distillation.  
+This repository provides training scripts for **slide-level self-supervised representation learning for histopathology**, using novel methods based on **DINO**/**DINOv2**-style knowledge-distillation. [1,2]
 The method operates on **ultra-long and variable-length sequences of tile embeddings** extracted from whole-slide images (WSIs).
 
 > **Note:** Tile extraction and ViT-based tile embedding generation are **not included** in this repository.  
 > You must supply your own tile embeddings or WSI tiles.  
-> This workflow is compatible with pathology foundation-model pipelines such as **GigaPath / Prov-GigaPath**. [1]
+> This workflow is compatible with pathology foundation-model pipelines such as **GigaPath / Prov-GigaPath**. [3]
 
 ## Problem formation
 
-Recent pathology foundation models (e.g., GigaPath, UNI, Virchow) provide strong **patch-level encoders**, but their **slide-level aggregation** is still a major bottleneck, even weaker than simple naive aggregators (e.g., ABMIL). Independent evaluations have shown that whole-slide retrieval and classification with these models often perform poorly (e.g., modest top-k retrieval on TCGA, weak performance on lung WSIs). [2]
+Recent pathology foundation models (e.g., GigaPath, UNI, Virchow) provide strong **patch-level encoders**, but their **slide-level aggregation** is still a major bottleneck, even weaker than simple naive aggregators (e.g., ABMIL). Independent evaluations have shown that whole-slide retrieval and classification with these models often perform poorly (e.g., modest top-k retrieval on TCGA, weak performance on lung WSIs). [4]
 
 ## Experiments (LUAD-specific 5-gene mutation prediction on TCGA, 10-fold cross-validation)
 
@@ -102,8 +102,12 @@ References
 
 This repository builds upon concepts introduced in Prov-GigaPath.
 
-[1] Hanwen Xu et al., “A whole-slide foundation model for digital pathology from real-world data.”
+[1] M. Caron et al., “Emerging Properties in Self-Supervised Vision Transformers,” in *Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)*, 2021. (DINO)
+
+[2] M. Oquab et al., “DINOv2: Learning Robust Visual Features without Supervision,” *arXiv preprint* arXiv:2304.07193, 2023. (DINOv2)
+
+[3] Hanwen Xu et al., “A whole-slide foundation model for digital pathology from real-world data.”
 Nature, 2024.
 https://www.nature.com/articles/s41586-024-07441-w
 
-[2] Saghir Alfasly et al., “Validation of histopathology foundation models through whole slide image retrieval.” *Scientific Reports* 15, 3990 (2025). https://doi.org/10.1038/s41598-025-88545-9  [oai_citation:1‡Nature](https://www.nature.com/articles/s41598-025-88545-9)
+[4] Saghir Alfasly et al., “Validation of histopathology foundation models through whole slide image retrieval.” *Scientific Reports* 15, 3990 (2025). https://doi.org/10.1038/s41598-025-88545-9  [oai_citation:1‡Nature](https://www.nature.com/articles/s41598-025-88545-9)
