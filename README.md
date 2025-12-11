@@ -21,7 +21,10 @@ Comparisons (proposed DINOv1/v2-style slide encoders):
   
 [Results AUROC/AUPRC](https://docs.google.com/document/d/15Tebd117aaCtSMpdUaY5-_kxblzjrYz6xkJz7hgRaOM/edit?usp=sharing)
 
-<img width="2816" height="1536" alt="Path_ssl" src="https://github.com/user-attachments/assets/665ed59b-f822-4e95-8d0d-cacb0339e7bd" />
+<div align="center">
+  <img src="assets/architecture_diagram.png" width="100%" alt="Slide-Level Pretraining Architecture" />
+</div>
+
 > Overview of the slide-level pretraining framework. (Left) WSIs are processed into tile embeddings. (Middle) Spatial coordinate-based cropping generates global and local views. (Right) A Student-Teacher framework with LongNet-style dilated attention learns slide-level representations via self-distillation.
 
 ---
