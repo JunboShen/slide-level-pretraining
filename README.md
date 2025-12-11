@@ -11,6 +11,12 @@ The method operates on **ultra-long and variable-length sequences of tile embedd
 
 Recent pathology foundation models (e.g., GigaPath, UNI, Virchow) provide strong **patch-level encoders**, but their **slide-level aggregation** is still a major bottleneck, even weaker than simple naive aggregators (e.g., ABMIL). Independent evaluations have shown that whole-slide retrieval and classification with these models often perform poorly (e.g., modest top-k retrieval on TCGA, weak performance on lung WSIs). [4]
 
+<div align="center">
+  <img src="assets/architecture_diagram.png" width="100%" alt="Slide-Level Pretraining Architecture" />
+</div>
+
+> Overview of the slide-level pretraining framework. (Left) WSIs are processed into tile embeddings. (Middle) Spatial coordinate-based cropping generates global and local views. (Right) A Student-Teacher framework with LongNet-style dilated attention learns slide-level representations via self-distillation.
+
 ## Experiments (LUAD-specific 5-gene mutation prediction on TCGA, 10-fold cross-validation)
 
 Comparisons (proposed DINOv1/v2-style slide encoders):
@@ -20,12 +26,6 @@ Comparisons (proposed DINOv1/v2-style slide encoders):
 - Prov-gigapath patch encoder + ABMIL
   
 [Results AUROC/AUPRC](https://docs.google.com/document/d/15Tebd117aaCtSMpdUaY5-_kxblzjrYz6xkJz7hgRaOM/edit?usp=sharing)
-
-<div align="center">
-  <img src="assets/architecture_diagram.png" width="100%" alt="Slide-Level Pretraining Architecture" />
-</div>
-
-> Overview of the slide-level pretraining framework. (Left) WSIs are processed into tile embeddings. (Middle) Spatial coordinate-based cropping generates global and local views. (Right) A Student-Teacher framework with LongNet-style dilated attention learns slide-level representations via self-distillation.
 
 ---
 
