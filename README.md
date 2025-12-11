@@ -1,4 +1,4 @@
-<img width="2816" height="1536" alt="Gemini_Generated_Image_hfsaxchfsaxchfsa" src="https://github.com/user-attachments/assets/f56d4507-4bc0-4112-b980-557af74093de" /># Slide-Level Self-Supervised Pretraining for Pathology Foundation Models
+# Slide-Level Self-Supervised Pretraining for Pathology Foundation Models
 
 This repository provides training scripts for **slide-level self-supervised representation learning for histopathology**, using novel methods based on **DINO**/**DINOv2**-style knowledge-distillation. [1,2]
 The method operates on **ultra-long and variable-length sequences of tile embeddings** extracted from whole-slide images (WSIs).
